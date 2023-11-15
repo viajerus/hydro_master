@@ -4,6 +4,10 @@ library(tidyr)
 library(mapview)
 library(readr)
 library(lubridate)
+library(smplot2)
+library(ggstatsplot)
+library("ggpubr")
+library(gtsummary)
 
 
 df_neckar <- read.table("/Users/dabanto/Downloads/2023-11-13_12-55/6335600_Q_Day.Cmd.txt", header = T)
@@ -33,6 +37,10 @@ df_neckar <- df_neckar %>%
 diclofenac$Messwert <- gsub(",", ".", diclofenac$Messwert)
 
 diclofenac$Messwert <- as.numeric(diclofenac$Messwert)
+
+
+
+
 
 #plot fluss
 
@@ -68,11 +76,92 @@ ggplot() +
 
 
 
-ggplot(calcium) +
-  geom_point(aes(x = date, y = Messwert), color = "blue") 
+neck_calc <- merge(x = df_neckar, y = calcium[ , c("date", "Messwert")], by = "date", all.x = TRUE)
 
-  
-  
-  
+neck_calc <- neck_calc %>% 
+  rename(Calcium_w = Messwert)
+
+neck_calc$log_q <- log(neck_calc$Value)
+
+
+ggscatter(neck_calc, x = "log_q", y = "Calcium_w",
+          color = "blue", cor.coef = TRUE,
+          cor.method = "pearson",
+          xlab = "Abfluss", ylab = "Konzentration")
+
+
+model <- lm(log_q~Calcium_w, data=neck_calc)
+summary(model)  
+
+x <- tbl_regression( 
+  model, 
+  pvalue_fun = function(x) {
+    if_else(
+      is.na(x), 
+      NA_character_,
+      if_else(x < 0.001, format(x, digits = 3, scientific = TRUE), format(round(x, 3), scientific = T))
+    )
+  },
+  estimate_fun = function(x) {
+    if_else(
+    is.na(x), 
+    NA_character_,
+    if_else(x < 0.001, format(x, digits = 3, scientific = TRUE), format(round(x, 3), scientific = T)),
+    )
+  } 
+)
+
+add_glance_ex1 <-
+  x %>%
+  add_glance_table(include = c(nobs, r.squared))
+
+add_glance_ex1
+
+### now for diclfenac
+
+
+neck_dic <- merge(x = df_neckar, y = diclofenac[ , c("date", "Messwert")], by = "date", all.x = TRUE)
+
+neck_dic <- neck_dic %>% 
+  rename(Diclofenac_w = Messwert)
+
+neck_dic$log_q <- log(neck_calc$Value)
+
+
+ggscatter(neck_dic, x = "log_q", y = "Diclofenac_w",
+          color = "blue", cor.coef = TRUE,
+          cor.method = "pearson",
+          xlab = "Abfluss", ylab = "Konzentration")
+
+
+model <- lm(log_q~Diclofenac_w, data=neck_dic)
+summary(model)  
+
+x <- tbl_regression( 
+  model, 
+  pvalue_fun = function(x) {
+    if_else(
+      is.na(x), 
+      NA_character_,
+      if_else(x < 0.001, format(x, digits = 3, scientific = TRUE), format(round(x, 3), scientific = T))
+    )
+  },
+  estimate_fun = function(x) {
+    if_else(
+      is.na(x), 
+      NA_character_,
+      if_else(x < 0.001, format(x, digits = 3, scientific = TRUE), format(round(x, 3), scientific = T)),
+    )
+  } 
+)
+
+add_glance_ex1 <-
+  x %>%
+  add_glance_table(include = c(nobs, r.squared))
+
+add_glance_ex1
+
+
+
   
   
