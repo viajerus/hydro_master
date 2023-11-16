@@ -8,7 +8,11 @@ library(smplot2)
 library(ggstatsplot)
 library("ggpubr")
 library(gtsummary)
-
+library(cowplot)
+library(grid)
+library(gridExtra)
+library(reshape)
+library(patchwork)
 
 df_neckar <- read.table("/Users/dabanto/Downloads/2023-11-13_12-55/6335600_Q_Day.Cmd.txt", header = T)
 
@@ -61,7 +65,7 @@ coeff <- 10000
 
 
 
-ggplot() +
+werte <- ggplot() +
    
   geom_point(data = calcium, aes(x = date, y = Messwert), color = "#56B4E9", size=0.8) + # Divide by 10 to get the same range than the temperature
   geom_point(data = diclofenac, aes(x = date, y = 1000*Messwert), color = "#E69F00", size=0.8) +
@@ -74,6 +78,38 @@ ggplot() +
     sec.axis = sec_axis(~.*0.001 , name="Second Axis")
   )
 
+
+# Align the plots and share the same x-axis
+combined_plot <- plot_grid(werte, ggp, align = "v", ncol = 1)
+
+x.grob <- textGrob("Common X", gp=gpar(fontface="bold", col="blue", fontsize=15))
+
+grid.arrange(arrangeGrob(combined_plot, bottom = x.grob))
+
+
+# Print the combined plot
+print(combined_plot)
+
+
+big_ds <- merge(x = big_ds, y = diclofenac[ , c("date", "Messwert")], by = "date", all.x = TRUE)
+
+big_ds <- big_ds %>% 
+  rename(Messwert_diclofen = Messwert)
+
+big_ds$Abfluss <- NULL
+
+
+mdata <- melt(big_ds, id=c("date"))
+
+p1 <- ggplot(mdata, aes(date, value)) + 
+  geom_point() + 
+  facet_wrap(~variable, scales = "free_y", ncol = 1)
+
+p2 <- ggplot(df_neckar, aes(date, Value)) + 
+  geom_line() 
+
+combined_plot <- p1 / p2
+combined_plot
 
 
 neck_calc <- merge(x = df_neckar, y = calcium[ , c("date", "Messwert")], by = "date", all.x = TRUE)
