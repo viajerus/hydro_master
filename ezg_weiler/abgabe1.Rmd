@@ -1,11 +1,28 @@
 ---
-title: "neckar_ezg"
+title: 'Methoden der Hydrologie: 1. Übung'
 author: "Daniel Abanto"
-output: html_document
 date: "2023-11-17"
+header-includes:
+  - |
+    ```{=latex}
+    \usepackage{fvextra}
+    \DefineVerbatimEnvironment{Highlighting}{Verbatim}{
+      showspaces = false,
+      showtabs = false,
+      breaklines,
+      commandchars=\\\{\}
+    }
+    ```
+output:
+  pdf_document:
+    toc: no
+  html_document:
+    toc: no
+    number_sections: no
+    pandoc_args: "--variable=parskip"
 ---
+<body style="background-color:#faf0e6;">
 
-#### The aim of this R Markdown is to provide a broad overview of the required steps to clean, organize and plot the raw epidemiological data
 
 ```{r setup, include=FALSE}
 library(knitr)
@@ -13,45 +30,279 @@ library(rmdformats)
 library(dplyr)
 library(ggplot2)
 library(tidyr)
-library(mapview)
 library(readr)
 library(lubridate)
 library(smplot2)
 library(ggstatsplot)
 library(ggpubr)
 library(gtsummary)
-library(cowplot)
 library(grid)
 library(gridExtra)
 library(reshape)
 library(patchwork)
-## Global options
-options(max.print="75")
-opts_knit$set(width=75)
-opts_knit$set(root.dir = '/home/dabanto/Desktop/master/hydro_master/ezg_weiler')
+library(gt)
+
+```
+## Settings
+
+```{r opt, include=TRUE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, fig.align="center")
+opts_knit$set(root.dir = '/Users/dabanto/Desktop/master/hydro_master/ezg_weiler')
+opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=TRUE)
+``` 
+
+## Packages, die ich verwenden werde
+
+```{r, echo=FALSE}
+installed.packages()[names(sessionInfo()$otherPkgs), "Version"]
+``` 
+
+## Daten
+
+Als erstes lade ich die Datensätze, die im .txt und .csv Format aus der [LUBW](https://udo.lubw.baden-wuerttemberg.de/public/)- und [BfG](https://www.bafg.de/GRDC/EN/Home/homepage_node.html) Webseite runtergeladen wurden. Ich werde mich mit einem Pegel des Neckars sowie mit zwei verschiedenen Parametern beschäftigen, die Auskunft über die Wasserqualität geben.
+
+
+
+
+<div style="margin-bottom:50px;">
+```{r}
+#Neckar Abfluss
+df_neckar <- read.table("/Users/dabanto/Downloads/2023-11-13_12-55/6335600_Q_Day.Cmd.txt", header = T)
+
+#Diclofenac Konzentration
+diclofenac <- read_csv("/Users/dabanto/Downloads/Daten_der_Chemie_Messstellen_2023_11_13.csv")
+
+#Calcium Konzentration
+calcium <- read_csv("/Users/dabanto/Downloads/Daten_der_Chemie_Messstellen_2023_11_13(1).csv")
+
+```
+</div>
+## Datenvorverarbeitung
+
+Die Datum Spalten werden umbennant und als **date** Format gespeichert
+
+```{r}
+df_neckar <- df_neckar %>% 
+  dplyr::rename(Datum = YYYY.MM.DD.hh.mm.) %>%
+  mutate(date = ymd(Datum)) %>% 
+  select(-Datum)
+
+
+diclofenac <- diclofenac %>% 
+  mutate(date = as.Date(Datum, format="%d.%m.%Y %H:%M"))
+
+calcium <- calcium %>% 
+  mutate(date = as.Date(Datum, format="%d.%m.%Y %H:%M"))
+
 ```
 
+Die Diclofenac- und Calcium-Werte wurden zwischen Januar 2010 und Dezember 2022 gemessen. Deshalb extrahiere ich die Abflussdaten, sodass sie mit den Messwerten im Einklang sind. 
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+```{r}
+
+#extract data
+df_neckar <- df_neckar %>%
+  filter(between(date, as.Date('2010-01-01'), as.Date('2022-12-31')))
+
 ```
 
-## R Markdown
+Die Calcium-Messwerte sind bereits als **num** gespeichert, die Diclofenac-Messwerte als **chr**. 
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+<div style="margin-bottom:50px;">
+```{r}
+diclofenac$Messwert <- gsub(",", ".", diclofenac$Messwert)
 
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+diclofenac$Messwert <- as.numeric(diclofenac$Messwert)
 
-```{r cars}
-summary(cars)
+```
+</div>
+\newpage
+## Zusammenführung von Daten
+
+Die Mess- und Abflusswerte werden zusammengeführt, um einen einheitlichen Datensatz zu erstellen.. 
+<div style="margin-bottom:50px;">
+```{r}
+
+#Abfluss- und Diclofenac-Werte werden zusammengeführt. Der Join erfolgt mit Hilfe des Datums
+zsm_ds <- merge(x = df_neckar, y = diclofenac[ , c("date", "Messwert")], by = "date", all.x = TRUE)
+
+#Die Abfluss und Messwerte-Spalte wird umbenannt, damit keine Konflikte entstehen. 
+zsm_ds <- zsm_ds %>% 
+  dplyr::rename(Messwert_diclofenac = Messwert)
+
+zsm_ds <- zsm_ds %>% 
+  dplyr::rename(Abfluss = Value)
+
+#Jetzt werden noch die Calcium-Werte gejoined. 
+final_ds <- merge(x = zsm_ds, y = calcium[ , c("date", "Messwert")], by = "date", all.x = TRUE)
+
+#Hier wird auch die Messwerte-Spalte umbenannt. 
+final_ds <- final_ds %>% 
+  dplyr::rename(Messwert_calcium = Messwert)
+
+head(final_ds, 10) %>% 
+  gt()
+
+```
+</div>
+
+
+## Weitere Datenvorverarbeitung
+
+Da ich mit facet_wrap() arbeiten werde, muss ich die Ausrichtung des DataFrames ändern. Das bedeutet, dass ich ein langes Format brauche. 
+
+Es wird eine Kopie des Dataframes erstellt und die Abfluss-Spalte wird gelöscht, weil ich den Abfluss-Plot mit einer separaten Funktion erstellen muss. 
+
+```{r}
+
+melt_df <- final_ds
+melt_df$Abfluss <- NULL
 ```
 
-## Including Plots
+Jetzt wird die Ausrichtung des Dataframes geändert. 
+<div style="margin-bottom:50px;">
+```{r}
 
-You can also embed plots, for example:
+mdata <- melt(melt_df, id=c("date"))
 
-```{r pressure, echo=FALSE}
-plot(pressure)
+```
+</div>
+## Plots
+
+Die Messwerte und die Abflusswerte werden im nächsten Schritt geplottet. 
+
+```{r}
+panel_labels <- c("Messwert_diclofenac" = "Diclofenac µg/l", "Messwert_calcium" = "Calcium mg/l")
+
+p1 <- ggplot(mdata, aes(date, value)) + 
+  geom_point() + 
+  ylab ("Messwerte") +
+  facet_wrap(~variable, scales = "free_y", ncol = 1, labeller = labeller(variable = panel_labels)) +
+  theme(axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank())
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+Als nächstes wird der Abfluss dargestellt. Dafür verwenden wir den Dataframe **final_ds**. 
+```{r}
+p2 <- ggplot(final_ds, aes(date, Abfluss)) + 
+  xlab("Datum") + ylab ("Mittlerer Tagesabfluss (Q)") +
+  geom_line() 
+```
+
+Beide Plots werden in einer Grafik mit einer gemeinsamen X-Achse dargestellt. 
+
+```{r combined_plot}
+combined_plot <- p1 / p2
+combined_plot
+
+```
+
+### Analyse der Beziehung
+
+Als nächstes wird die Beziehung zwischen Abfluss und Messwerte untersucht. 
+
+Damit die Beziehung besser Analysiert werden kann, werden die Abflusswerte logarithmiert.  
+
+<div style="margin-bottom:50px;">
+```{r}
+final_ds$log_q <- log(final_ds$Abfluss)
+```
+</div>
+
+Der lineare Zusammenhang zwischen den Variablen wird mit Hilfe einer Pearson-Korrelation untersucht.
+<div style="margin-bottom:100px;">
+```{r}
+ggscatter(final_ds, x = "log_q", y = "Messwert_calcium",
+          color = "blue", cor.coef = TRUE,
+          cor.method = "pearson",
+          xlab = "log Mittlerer Tagesabfluss Q", ylab = "Calcium mg/l")
+```
+</div>
+
+
+Als nächstes wird eine lineare Regression mit lm() erstellt, um den $R^2$ Wert sowie das Konfidenzintervall zu ermitteln
+
+<div style="margin-bottom:100px;">
+```{r}
+#lm modell
+model <- lm(log_q~Messwert_calcium, data=final_ds)
+
+#Erstellen der Tabelle
+x <- tbl_regression( 
+  model, 
+  pvalue_fun = function(x) {
+    if_else(
+      is.na(x), 
+      NA_character_,
+      if_else(x < 0.001, format(x, digits = 3, scientific = TRUE), format(round(x, 3), scientific = T))
+    )
+  },
+  estimate_fun = function(x) {
+    if_else(
+    is.na(x), 
+    NA_character_,
+    if_else(x < 0.001, format(x, digits = 3, scientific = TRUE), format(round(x, 3), scientific = T)),
+    )
+  } 
+)
+
+add_glance_ex1 <-
+  x %>%
+  add_glance_table(include = c(nobs, r.squared))
+
+add_glance_ex1
+
+```
+</div>
+
+Die gleichen Schritte werde ich für die Diclofenac-Messwerte anwenden.
+
+<div style="margin-bottom:50px;">
+```{r}
+ggscatter(final_ds, x = "log_q", y = "Messwert_diclofenac",
+          color = "blue", cor.coef = TRUE,
+          cor.method = "pearson",
+          xlab = "log Mittlerer Tagesabfluss Q", ylab = "Diclofenac µg/l")
+```
+</div>
+
+$R^2$ Wert und Konfidenzintervall
+```{r}
+#lm modell
+model <- lm(log_q~Messwert_diclofenac, data=final_ds)
+
+#Erstellen der Tabelle
+x <- tbl_regression( 
+  model, 
+  pvalue_fun = function(x) {
+    if_else(
+      is.na(x), 
+      NA_character_,
+      if_else(x < 0.001, format(x, digits = 3, scientific = TRUE), format(round(x, 3), scientific = T))
+    )
+  },
+  estimate_fun = function(x) {
+    if_else(
+    is.na(x), 
+    NA_character_,
+    if_else(x < 0.001, format(x, digits = 3, scientific = TRUE), format(round(x, 3), scientific = T)),
+    )
+  } 
+)
+
+add_glance_ex1 <-
+  x %>%
+  add_glance_table(include = c(nobs, r.squared))
+
+add_glance_ex1
+
+```
+
+### Diskussion
+
+Zwischen der Konzentration von Kalzium und dem mittleren Tagesabfluss besteht ein negativer Zusammenhang, wie auf der Abbildung ersichtlich ist. Allerdings beträgt das Bestimmtheitsmaß lediglich 0,135, was auf einen geringen linearen Zusammenhang hinweist.
+
+Zwischen der Konzentration von Diclofenac und dem mittleren Tagesabfluss besteht ein positiver Zusammenhang. Das Bestimmtheitsmaß ist in diesem Fall sogar noch geringer (0,026), sodass man interpretieren kann, dass kein linearer Zusammenhang vorliegt.
+
+Eine mögliche Erklärung für die geringen Werte ist das Fehlen von Daten. Für die Calcium-Messwerte gibt es 221 Messungen, während es für die Diclofenac-Messwerte nur 180 gibt. Im Gegensatz dazu sind tägliche Abflussdaten vorhanden.
