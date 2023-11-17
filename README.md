@@ -1,2 +1,2 @@
 # hydro_master
-etc
+super secret master code
