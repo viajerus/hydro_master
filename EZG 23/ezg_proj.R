@@ -3,25 +3,28 @@ library(lubridate)
 library(ggplot2)
 library(hydroEvents)
 library(readr)
-
+library(lfstat)
+library(lmom)
+library(lattice)
+library(lfstat)
 
 nis <- read.table("/Users/dabanto/Downloads/N_07234.txt", skip=2, header = T)
 
 
-abfluss <- read_csv("/Users/dabanto/Downloads/landespegel.csv")
+abfluss <- read_csv("/Users/dabanto/Downloads/Landespegel.csv")
 
 
 abfluss <- abfluss %>% 
   mutate(date = as.POSIXct(`Datum / Uhrzeit`, format= "%d/%m/%Y %H:%M"))
 
+nis <- nis %>%
+  mutate(date = make_datetime(Jahr, Monat, Tag, Stunde))
 
 workdat<-merge(abfluss,nis,by = "date")
 
-workdat$Stunde <- NULL
+workdat$`Datum / Uhrzeit` <- NULL
 
-
-nis <- nis %>%
-  mutate(date = make_datetime(Jahr, Monat, Tag, Stunde))
+save(workdat, file = "/Users/dabanto/Downloads/workdat.RData")
 
 
 nis_sum <-
@@ -67,7 +70,7 @@ workdat <- tibble::rowid_to_column(workdat, "ID")
 
 events <- dplyr::pull(events.P, which.max)
 
-rowRanges <- lapply(which(rownames(workdat) %in% events), function(x) x + c(-20:20))
+rowRanges <- lapply(which(rownames(workdat) %in% events), function(x) x + c(-15:15))
 
 filt <- lapply(rowRanges, function(x) workdat[x, ])
 
@@ -87,6 +90,48 @@ new$Wert <- gsub(",", ".", new$Wert)
 new$Wert <- as.numeric(new$Wert)
 
 new$Wert <- new$Wert*1000*3600/62805000  #mm/hour
+
+
+new_test <- new %>% 
+  filter(Name == 1) %>% 
+  select(date, Wert, N)
+
+
+
+#nasty loop
+
+result_data <- data.frame()
+
+
+for (i in 1:length(events)) {
+  #i <- 1
+  new_test <- new %>% 
+    filter(Name == i) %>% 
+    select(date, Wert, N)
+  event <- xts(x = new_test, order.by = new_test$date)
+  event$date <- NULL
+  event$baseflow <- baseflow(event$Wert)
+  df = data.frame(date=index(event), coredata(event), event_number = rep(i))
+  result_data <- bind_rows(result_data, df)
+  
+  }
+  
+
+
+
+
+event <- xts(x = new_test, order.by = new_test$date)
+
+event$date <- NULL
+
+
+event$baseflow <- baseflow(event1$Wert)
+
+ray96 <- ray[format(time(ray), "%Y") == "1996", ]
+plot(event1$Wert, type = "l")
+lines(event1$baseflow, col = 2)
+
+
 
 new %>% 
   group_by(Name) %>% 
