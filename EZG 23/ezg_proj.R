@@ -2,11 +2,26 @@ library(dplyr)
 library(lubridate)
 library(ggplot2)
 library(hydroEvents)
+library(readr)
 
-nis <- read.table("/home/dabanto/Downloads/N_07234.txt", skip=2, header = T)
+
+nis <- read.table("/Users/dabanto/Downloads/N_07234.txt", skip=2, header = T)
+
+
+abfluss <- read_csv("/Users/dabanto/Downloads/landespegel.csv")
+
+
+abfluss <- abfluss %>% 
+  mutate(date = as.POSIXct(`Datum / Uhrzeit`, format= "%d/%m/%Y %H:%M"))
+
+
+workdat<-merge(abfluss,nis,by = "date")
+
+workdat$Stunde <- NULL
+
 
 nis <- nis %>%
-  mutate(date = make_date(Jahr, Monat, Tag))
+  mutate(date = make_datetime(Jahr, Monat, Tag, Stunde))
 
 
 nis_sum <-
@@ -19,12 +34,6 @@ nis_sum <-
   summarize(n_sum = sum(N))  
 
 
-ggplot(nis_sum, aes(x= day, y= n_sum)) +
-  geom_bar() +
-  xlab("") +
-  ylab("# tweets") +
-  labs(title = "Sentiments for covid-19 related tweets",
-       subtitle = "in Baden-Württenberg")
 
 ggp <- ggplot(nis_sum)  + 
   geom_bar(aes(x=day, y=n_sum),stat="identity", fill="cyan",colour="#006000")+
@@ -49,16 +58,47 @@ srt = as.Date(min(nis$date))
 end = as.Date(max(nis$date))
 dat = dataCatchment$`105105A`[which(dataCatchment$`105105A`$Date >= srt & dataCatchment$`105105A`$Date <= end),]
 
-events.P = eventPOT(nis$N, threshold = 15, min.diff = 1)
+events.P = eventPOT(workdat$N, threshold = 15, min.diff = 1)
 
-plotEvents(nis$N, dates = nis$date, events = events.P, type = "hyet", colline = "#377EB8", colpnt = "#E41A1C",ylab = "Rainfall (mm)", xlab = 2015, main = "")
+plotEvents(workdat$N, dates = workdat$date, events = events.P, type = "hyet", colline = "#377EB8", colpnt = "#E41A1C",ylab = "Rainfall (mm)", xlab = 2015, main = "")
 
-
-newfun <- function(vec, val, n) {
-  rows <- sapply(which(vec==val), function(x) seq(x-n, x+n, 1))
-  rows <- unique(sort(rows[rows>0 & rows<length(vec)]))
-  return(vec[rows])
-}
+workdat <- tibble::rowid_to_column(workdat, "ID")
 
 
+events <- dplyr::pull(events.P, which.max)
 
+rowRanges <- lapply(which(rownames(workdat) %in% events), function(x) x + c(-20:20))
+
+filt <- lapply(rowRanges, function(x) workdat[x, ])
+
+out <- do.call(rbind, filt)
+
+new <-  do.call(rbind, Map(cbind, Name = seq_along(filt), filt))
+
+
+p1 <- ggplot() + geom_line(aes(y = N, x = date, colour = Name),
+                           data = new, stat="identity")
+p1
+
+str(new)
+
+new$Wert <- gsub(",", ".", new$Wert)
+
+new$Wert <- as.numeric(new$Wert)
+
+new$Wert <- new$Wert*1000*3600/62805000  #mm/hour
+
+new %>% 
+  group_by(Name) %>% 
+  ggplot(aes(x = date, y = Wert, group = Name, color = Name)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~Name, ncol = 2, scales = "free")
+
+
+
+ggplot(df, aes(x = x, y = y, color = variable2, fill = variable2)) +
+  geom_bar(stat = "identity", alpha = 0.7) +
+  geom_line(aes(group = variable2), size = 1.5, color = "red") +
+  facet_wrap(~variable1, scales = "free_y") +
+  labs(title = "Facet Wrap Plot with Bar Plot and Line")
