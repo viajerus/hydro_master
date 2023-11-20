@@ -1,0 +1,256 @@
+---
+title: "Einzugsgebiete Abflussbeiwert"
+author: "Daniel Abanto & Noah Reck"
+header-includes:
+  - |
+    ```{=latex}
+    \usepackage{fvextra}
+    \DefineVerbatimEnvironment{Highlighting}{Verbatim}{
+      showspaces = false,
+      showtabs = false,
+      breaklines,
+      commandchars=\\\{\}
+output:
+  html_document:
+    toc: no
+    number_sections: no
+    pandoc_args: "--variable=parskip"
+  pdf_document:
+    toc: no
+---
+<body style="background-color:#faf0e6;">
+
+```{r setup, include=FALSE}
+library(dplyr)
+library(knitr)
+library(rmdformats)
+library(lubridate)
+library(ggplot2)
+library(hydroEvents)
+library(readr)
+library(lfstat)
+library(lmom)
+library(lattice)
+library(lfstat)
+library(tidyr)
+library(reshape)
+library(gt)
+
+```
+
+## Settings
+
+```{r opt, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE, fig.align="center")
+opts_knit$set(root.dir = '/Users/dabanto/Desktop/master/hydro_master/EZG 23')
+opts_chunk$set(tidy.opts=list(width.cutoff=60),tidy=TRUE)
+``` 
+
+
+## Packages, die wir verwenden werde
+
+```{r, echo=FALSE}
+installed.packages()[names(sessionInfo()$otherPkgs), "Version"]
+``` 
+
+## Einführung
+
+Abfluss-Ereignis-Koeffizient: volumetrischer, ereignisspezifischer Quotient aus Abfluss und Niederschlagssumme. Er ist sowohl von den Eigenschaften des Einzugsgebiets abhängig z.B. Anteil und Durchlässigkeit befestigter Flächen, Bodeneigenschaften, Bewuchs, Geländeneigung, Vorfeuchte, Eisbedeckung, als auch von der Intensität und Dauer des Niederschlagsereignisses. Die Wirkung der Gebietseigenschaften kann sich mit Niederschlagsintensität und -dauer ändern. 
+Er wird daher verwendet um die gekoppelten Abflussbildungsprozesse zu charakterisieren.
+
+$\Psi = \frac{Q}{N}$
+
+
+
+## Berechnung des Abfluss-Ereignis-Koeffizient anhand Beispieldaten 
+
+Daten: Abflussdaten der Kinzig (m3/s) am Pegel Schenkenzell (Nr.3326) und Niederschlagsdaten (mm) aus Schiltach (Nr.7234)
+Zeitraum: 01.11.2010 bis 01.11.2023
+
+
+```{r, echo=TRUE}
+
+#Niederschlag .txt
+nis <- read.table("/Users/dabanto/Downloads/N_07234.txt", skip=2, header = T)
+
+#Abfluss .csv
+abfluss <- read_csv("/Users/dabanto/Downloads/landespegel.csv")
+
+#Datum formatieren 
+abfluss <- abfluss %>% 
+  mutate(date = as.POSIXct(`Datum / Uhrzeit`, format= "%d/%m/%Y %H:%M"))
+
+nis <- nis %>%
+  mutate(date = make_datetime(Jahr, Monat, Tag, Stunde))
+
+
+
+
+#Merge, um beide Datensätze zu vereinien
+workdat<-merge(abfluss,nis,by = "date")
+
+#Ablusswerte müssen als Zahl gespeichert werden
+workdat$Wert <- gsub(",", ".", workdat$Wert)
+
+workdat$Wert <- as.numeric(workdat$Wert)
+
+workdat <- tibble::rowid_to_column(workdat, "ID")
+
+workdat <- workdat %>% 
+  select(ID, date, Stationsname, Parameter, Wert, N)
+
+#umrechnung (hinterste zahl: ezg-größe in m2)
+workdat$Wert <- workdat$Wert*1000*3600/62805000 
+
+#plot niederschlag und abfluss
+par(mfrow=c(2,1),mar=c(0,4,4,2))
+plot(workdat$date,workdat$Wert,type="l",ylab="Abfluss [m3/s]",xlab="Datum",main="Stundenmittelwerte (Kinzig Schenkenzell)")
+par(mar=c(4,4,0,2))
+plot(workdat$date,workdat$N,type="l",col="darkblue",ylab="Niederschlag [mm]",xlab="Datum")
+
+``` 
+
+## Identifikation einzelner Regenereignisse
+
+eventPOT() mit Parametern threshold (Mindestwert von N um als Event identifiziert zu werden) und min.diff (Abstand, der erforderlich ist, damit zwei Ereignisse als getrennt betrachtet werden können) 
+Der Output ist ein DataFrame mit den höchsten Niederschlagswerten. 
+
+```{r}
+
+#nach events suchen
+events.P = eventPOT(workdat$N, threshold = 15, min.diff = 1)
+
+#plot events
+plotEvents(workdat$N, dates = workdat$date, events = events.P, type = "hyet", colline = "#377EB8", colpnt = "#E41A1C",ylab = "Rainfall (mm)", xlab = 2015, main = "")
+
+
+
+```
+
+
+## Events extrahieren
+
+Funktion um Eventbasiert anhand einer Event ID Niederschlags und Abflussdaten zu extrahieren und in einem neuen Datensatz zu speichern. Nimmt Punkt höchsten Niederschlags und extrahiert gewünschte Länge an Datenpunkten vor und nach maximalem Niederschlag. 
+Schwierigkeit: Eventspezifisches extrahieren ist schwierig mit generellem Code 
+
+
+```{r}
+#rows extrahieren
+
+events <- dplyr::pull(events.P, which.max)
+
+#
+rowRanges <- lapply(which(rownames(workdat) %in% events), function(x) x + c(-15:15))
+
+filt <- lapply(rowRanges, function(x) workdat[x, ])
+
+out <- do.call(rbind, filt)
+
+#Erstellen eines Datensatzes, mit Eventspezifischen Niederschlags- uns Abflussdaten
+
+new <-  do.call(rbind, Map(cbind, Name = seq_along(filt), filt))
+
+head(new, 5) %>% 
+  gt()
+
+```
+
+## Abflussbeiwert mit Direktabfluss
+
+Um den Direktabfluss(Qf) zu bestimmen wird der Basisabfluss (Qb) bestimmt und vom Gesamtabfluss (Qges) subtrahiert. 
+Hierfür wurde zunächst die Funktionion baseflow() innerhalb einer Schleife angewendet um für jedes Event und jeden Zeitschritt Werte für Qges und Qb zu erhalten. Anschließend wurde der Qf durch einfache Subtraktion berechnet. Um den Abflusskoeffizient (RFC) des Events zu erhalten wurden sowohl Abfluss als auch Direktabfluss aufsummiert und deren Verhältnis berechnet. Output ist ein Datensatz mit Event-ID, RFC, Summe der Niederschläge und Summer des Direktabflusses. 
+
+```{r}
+result_data <- data.frame()
+
+
+for (i in 1:length(events)) {
+  #i <- 1
+  new_test <- new %>% 
+    filter(Name == i) %>% 
+    select(date, Wert, N)
+  event <- xts(x = new_test, order.by = new_test$date)
+  event$date <- NULL
+  event$baseflow <- baseflow(event$Wert)
+  df = data.frame(date=index(event), coredata(event), event_id = rep(i))
+  result_data <- bind_rows(result_data, df)
+  
+}
+
+result_data <- result_data %>% 
+  drop_na()
+
+  
+agg <- result_data %>%
+  group_by(event_id) %>%
+  summarise(across(c(Wert, N, baseflow), sum))
+
+agg <- agg %>% 
+  dplyr::rename(Qges = Wert) %>% 
+  dplyr::rename(Qb = baseflow)
+
+agg$Qf <- (agg$Qges-agg$Qb)
+
+agg$RFC <- agg$Qf/agg$N
+
+head(agg, 10) %>% 
+  gt()
+
+```
+
+## Abflussbeiwerte mit Gesamtabfluss des Events
+
+Nachdem das Ergebnis des Direktabflusskoeffizienten unplausibel erschien haben wir den Abflussbeiwert für den Gesamtabfluss des Events berechnet. 
+Der zuvor aggregierte Datensatz wurde verwendet um mithilfe von limbs() den Start und das Ende des Abflussereignisses genauer zu bestimmen.
+
+
+```{r, fig.show='hide', eval=FALSE}
+
+for (i in 1:nrow(agg)) {
+  new_t <- new %>% 
+    filter(Name == i) %>% 
+    select(Wert, N) %>% 
+    mutate(id = row_number())
+  
+  BFI_res <- tryCatch(eventBaseflow(new_t$Wert), error = function(e) NA)
+  print(rep(i))
+  ifelse(!is.na(BFI_res), df <- limbs(data = new_test$Wert, dates = NULL, events = BFI_res), NA)
+  
+  agg$Q_event[i] <- ifelse(is.na(df), NA, df[1, "sum"])
+  agg$srt_event[i] <- ifelse(is.na(df), NA, df[1, "srt"])
+  agg$end_event[i] <- ifelse(is.na(df), NA, df[1, "end"])
+  
+  agg$sum_n[i] <- new %>%
+    filter(Name == i) %>% 
+    slice(agg$srt_event[i]:agg$end_event[i]) %>%
+    summarise(sum_value = sum(N)) %>% 
+    pull(sum_value)
+  
+}
+
+
+```
+
+
+```{r}
+
+agg$RFC_2 <- agg$Q_event/agg$sum_n
+
+
+plot_q <- agg %>% 
+  select(event_id, RFC, RFC_2)
+
+plot_q <- as.data.frame(plot_q)
+
+plot_q <- melt(plot_q, id=c("event_id"))
+
+
+plot_q %>% 
+  group_by(variable) %>% 
+  ggplot(aes(x = event_id, y = value, group = variable, color = variable)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~variable, nrow = 2, scales = "free")
+
+```
+

@@ -7,11 +7,13 @@ library(lfstat)
 library(lmom)
 library(lattice)
 library(lfstat)
+library(tidyr)
+library(reshape)
 
 nis <- read.table("/Users/dabanto/Downloads/N_07234.txt", skip=2, header = T)
 
 
-abfluss <- read_csv("/Users/dabanto/Downloads/Landespegel.csv")
+abfluss <- read_csv("/Users/dabanto/Downloads/landespegel.csv")
 
 
 abfluss <- abfluss %>% 
@@ -22,10 +24,11 @@ nis <- nis %>%
 
 workdat<-merge(abfluss,nis,by = "date")
 
-workdat$`Datum / Uhrzeit` <- NULL
+workdat$Stunde <- NULL
 
 save(workdat, file = "/Users/dabanto/Downloads/workdat.RData")
 
+#aggreggierte tageswerte
 
 nis_sum <-
   nis %>% 
@@ -49,32 +52,25 @@ ggp <- ggplot(nis_sum)  +
 ggp
 
 
-events = eventPOT(nis$N, threshold = 1, min.diff = 2)
-
-plotEvents(dataLoch, dates = NULL, events = events, type = "hyet", ylab = "Rainfall [mm]", main = "Rainfall Events (threshold = 1, min.diff = 2)")
-
-
-load("/home/dabanto/Downloads/dataLoch.rda")
-
-
-srt = as.Date(min(nis$date))
-end = as.Date(max(nis$date))
-dat = dataCatchment$`105105A`[which(dataCatchment$`105105A`$Date >= srt & dataCatchment$`105105A`$Date <= end),]
-
+#nach events suchen
 events.P = eventPOT(workdat$N, threshold = 15, min.diff = 1)
 
 plotEvents(workdat$N, dates = workdat$date, events = events.P, type = "hyet", colline = "#377EB8", colpnt = "#E41A1C",ylab = "Rainfall (mm)", xlab = 2015, main = "")
 
 workdat <- tibble::rowid_to_column(workdat, "ID")
 
+#rows extrahieren
 
 events <- dplyr::pull(events.P, which.max)
 
+#
 rowRanges <- lapply(which(rownames(workdat) %in% events), function(x) x + c(-15:15))
 
 filt <- lapply(rowRanges, function(x) workdat[x, ])
 
 out <- do.call(rbind, filt)
+
+#dataset for loop
 
 new <-  do.call(rbind, Map(cbind, Name = seq_along(filt), filt))
 
@@ -93,12 +89,32 @@ new$Wert <- new$Wert*1000*3600/62805000  #mm/hour
 
 
 new_test <- new %>% 
-  filter(Name == 1) %>% 
+  filter(Name == 4) %>% 
   select(date, Wert, N)
 
+BFI_res <- eventBaseflow(new_test$Wert)
 
 
-#nasty loop
+d = seq(
+  from=min(new_test$date),
+  to=max(new_test$date),
+  by="hour"
+)  
+
+new_test$date <- NULL
+
+limbs(data = new_test$Wert, dates = d, events = BFI_res)
+
+## ausprobieren
+df <- limbs(data = new_test$Wert, dates = d, events = BFI_res)
+
+
+
+
+
+
+
+#iterate over every event to calculate baseflow
 
 result_data <- data.frame()
 
@@ -111,25 +127,64 @@ for (i in 1:length(events)) {
   event <- xts(x = new_test, order.by = new_test$date)
   event$date <- NULL
   event$baseflow <- baseflow(event$Wert)
-  df = data.frame(date=index(event), coredata(event), event_number = rep(i))
+  df = data.frame(date=index(event), coredata(event), event_id = rep(i))
   result_data <- bind_rows(result_data, df)
   
   }
   
+result_data <- result_data %>% 
+  drop_na()
+
+  
+ agg <- result_data %>%
+  group_by(event_id) %>%
+  summarise(across(c(Wert, N, baseflow), sum))
+
+agg <- agg %>% 
+  rename(Qges = Wert) %>% 
+  rename(Qb = baseflow)
 
 
+agg$Qf <- (agg$Qges-agg$Qb)
+
+agg$RFC <- agg$Qf/agg$N
+  
+
+for (i in 1:nrow(agg)) {
+  new_t <- new %>% 
+    filter(Name == i) %>% 
+    select(Wert, N) %>% 
+    mutate(id = row_number())
+  
+  BFI_res <- tryCatch(eventBaseflow(new_t$Wert), error = function(e) NA)
+  print(rep(i))
+  ifelse(!is.na(BFI_res), df <- limbs(data = new_test$Wert, dates = NULL, events = BFI_res), NA)
+  
+  agg$Q_event[i] <- ifelse(is.na(df), NA, df[1, "sum"])
+  agg$srt_event[i] <- ifelse(is.na(df), NA, df[1, "srt"])
+  agg$end_event[i] <- ifelse(is.na(df), NA, df[1, "end"])
+  
+}
 
 
-event <- xts(x = new_test, order.by = new_test$date)
-
-event$date <- NULL
+agg$RFC_2 <- agg$Q_event/agg$N
 
 
-event$baseflow <- baseflow(event1$Wert)
+plot_q <- agg %>% 
+  select(event_id, RFC, RFC_2)
 
-ray96 <- ray[format(time(ray), "%Y") == "1996", ]
-plot(event1$Wert, type = "l")
-lines(event1$baseflow, col = 2)
+plot_q <- as.data.frame(plot_q)
+
+plot_q <- melt(plot_q, id=c("event_id"))
+
+
+plot_q %>% 
+  group_by(variable) %>% 
+  ggplot(aes(x = event_id, y = value, group = variable, color = variable)) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(~variable, nrow = 2, scales = "free")
+
 
 
 
