@@ -28,6 +28,7 @@ library(lubridate)
 library(ggplot2)
 library(hydroEvents)
 library(readr)
+library(formatR)
 library(lfstat)
 library(lmom)
 library(lattice)
@@ -58,7 +59,9 @@ installed.packages()[names(sessionInfo()$otherPkgs), "Version"]
 Abfluss-Ereignis-Koeffizient: volumetrischer, ereignisspezifischer Quotient aus Abfluss und Niederschlagssumme. Er ist sowohl von den Eigenschaften des Einzugsgebiets abhängig z.B. Anteil und Durchlässigkeit befestigter Flächen, Bodeneigenschaften, Bewuchs, Geländeneigung, Vorfeuchte, Eisbedeckung, als auch von der Intensität und Dauer des Niederschlagsereignisses. Die Wirkung der Gebietseigenschaften kann sich mit Niederschlagsintensität und -dauer ändern. 
 Er wird daher verwendet um die gekoppelten Abflussbildungsprozesse zu charakterisieren.
 
-$\Psi = \frac{Q}{N}$
+\[
+\Large \Psi = \frac{Q}{N}
+\]
 
 
 
@@ -204,7 +207,8 @@ Nachdem das Ergebnis des Direktabflusskoeffizienten unplausibel erschien haben w
 Der zuvor aggregierte Datensatz wurde verwendet um mithilfe von limbs() den Start und das Ende des Abflussereignisses genauer zu bestimmen.
 
 
-```{r, fig.show='hide', eval=FALSE}
+
+```{r, fig.show='hide', eval=TRUE, results='hide'}
 
 for (i in 1:nrow(agg)) {
   new_t <- new %>% 
@@ -231,11 +235,10 @@ for (i in 1:nrow(agg)) {
 
 ```
 
+## Berechnen des 2. RFC und Vergleich
 
 ```{r}
-
 agg$RFC_2 <- agg$Q_event/agg$sum_n
-
 
 plot_q <- agg %>% 
   select(event_id, RFC, RFC_2)
@@ -253,4 +256,8 @@ plot_q %>%
   facet_wrap(~variable, nrow = 2, scales = "free")
 
 ```
+
+
+
+
 
