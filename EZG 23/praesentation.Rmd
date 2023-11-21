@@ -142,11 +142,13 @@ Schwierigkeit: Eventspezifisches extrahieren ist schwierig mit generellem Code
 
 events <- dplyr::pull(events.P, which.max)
 
-#
+#rows um Event extrahieren
 rowRanges <- lapply(which(rownames(workdat) %in% events), function(x) x + c(-15:15))
 
+#apply function
 filt <- lapply(rowRanges, function(x) workdat[x, ])
 
+#bind extracted rows as dataframe
 out <- do.call(rbind, filt)
 
 #Erstellen eines Datensatzes, mit Eventspezifischen Niederschlags- uns Abflussdaten
@@ -164,18 +166,18 @@ Um den Direktabfluss(Qf) zu bestimmen wird der Basisabfluss (Qb) bestimmt und vo
 Hierfür wurde zunächst die Funktionion baseflow() innerhalb einer Schleife angewendet um für jedes Event und jeden Zeitschritt Werte für Qges und Qb zu erhalten. Anschließend wurde der Qf durch einfache Subtraktion berechnet. Um den Abflusskoeffizient (RFC) des Events zu erhalten wurden sowohl Abfluss als auch Direktabfluss aufsummiert und deren Verhältnis berechnet. Output ist ein Datensatz mit Event-ID, RFC, Summe der Niederschläge und Summer des Direktabflusses. 
 
 ```{r}
-result_data <- data.frame()
+result_data <- data.frame() #erstellen eines leeren DataFrames
 
 
-for (i in 1:length(events)) {
+for (i in 1:length(events)) {  #Eine Iteration je Event
   #i <- 1
-  new_test <- new %>% 
-    filter(Name == i) %>% 
+  new_test <- new %>%      #Alle Daten eines Events extrahieren
+    filter(Name == i) %>%  
     select(date, Wert, N)
-  event <- xts(x = new_test, order.by = new_test$date)
-  event$date <- NULL
-  event$baseflow <- baseflow(event$Wert)
-  df = data.frame(date=index(event), coredata(event), event_id = rep(i))
+  event <- xts(x = new_test, order.by = new_test$date)   #Event in Zeitreihe umwandeln
+  event$date <- NULL                             #Datum löschen, da Matrix num() oder chr() braucht
+  event$baseflow <- baseflow(event$Wert)    #Baseflow für Event i berechnen
+  df = data.frame(date=index(event), coredata(event), event_id = rep(i)) #Dataframe mit Baseflow Daten füllen
   result_data <- bind_rows(result_data, df)
   
 }
@@ -216,7 +218,7 @@ for (i in 1:nrow(agg)) {
     select(Wert, N) %>% 
     mutate(id = row_number())
   
-  BFI_res <- tryCatch(eventBaseflow(new_t$Wert), error = function(e) NA)
+  BFI_res <- tryCatch(eventBaseflow(new_t$Wert), error = function(e) return(NA))
   print(rep(i))
   ifelse(!is.na(BFI_res), df <- limbs(data = new_test$Wert, dates = NULL, events = BFI_res), NA)
   
