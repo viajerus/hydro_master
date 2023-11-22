@@ -13,6 +13,7 @@ library(grid)
 library(gridExtra)
 library(reshape)
 library(patchwork)
+library(gt)
 
 df_neckar <- read.table("/Users/dabanto/Downloads/2023-11-13_12-55/6335600_Q_Day.Cmd.txt", header = T)
 
@@ -23,7 +24,7 @@ calcium <- read_csv("/Users/dabanto/Downloads/Daten_der_Chemie_Messstellen_2023_
 #set as date
 
 df_neckar <- df_neckar %>% 
-  rename(Datum = YYYY.MM.DD.hh.mm.) %>%
+  dplyr::rename(Datum = YYYY.MM.DD.hh.mm.) %>%
   mutate(date = ymd(Datum)) %>% 
   select(-Datum)
 
@@ -79,33 +80,34 @@ werte <- ggplot() +
   )
 
 
-# Align the plots and share the same x-axis
-combined_plot <- plot_grid(werte, ggp, align = "v", ncol = 1)
 
-x.grob <- textGrob("Common X", gp=gpar(fontface="bold", col="blue", fontsize=15))
-
-grid.arrange(arrangeGrob(combined_plot, bottom = x.grob))
-
-
-# Print the combined plot
-print(combined_plot)
-
-
-big_ds <- merge(x = big_ds, y = diclofenac[ , c("date", "Messwert")], by = "date", all.x = TRUE)
+big_ds <- merge(x = df_neckar, y = diclofenac[ , c("date", "Messwert")], by = "date", all.x = TRUE)
 
 big_ds <- big_ds %>% 
-  rename(Messwert_diclofen = Messwert)
+  dplyr::rename(Messwert_diclofenac = Messwert)
 
-big_ds$Abfluss <- NULL
+big_ds$Value <- NULL
+
+big_ds <- merge(x = big_ds, y = calcium[ , c("date", "Messwert")], by = "date", all.x = TRUE)
+
+big_ds <- big_ds %>% 
+  dplyr::rename(Messwert_calcium = Messwert)
 
 
 mdata <- melt(big_ds, id=c("date"))
 
+
+panel_labels <- c("Messwert_diclofenac" = "Diclofenac µg/l", "Messwert_calcium" = "Calcium mg/l")
+
 p1 <- ggplot(mdata, aes(date, value)) + 
   geom_point() + 
-  facet_wrap(~variable, scales = "free_y", ncol = 1)
+  ylab ("Messwerte") +
+  facet_wrap(~variable, scales = "free_y", ncol = 1, labeller = labeller(variable = panel_labels)) +
+  theme(axis.title.x=element_blank())
+p1
 
 p2 <- ggplot(df_neckar, aes(date, Value)) + 
+  xlab("Datum") + ylab ("Mittlerer Tagesabfluss (Q)") +
   geom_line() 
 
 combined_plot <- p1 / p2
@@ -196,6 +198,7 @@ add_glance_ex1 <-
   add_glance_table(include = c(nobs, r.squared))
 
 add_glance_ex1
+
 
 
 
