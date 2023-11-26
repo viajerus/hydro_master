@@ -13,7 +13,7 @@ library(reshape)
 nis <- read.table("/Users/dabanto/Downloads/N_07234.txt", skip=2, header = T)
 
 
-abfluss <- read_csv("/Users/dabanto/Downloads/landespegel.csv")
+abfluss <- read_csv("/Users/dabanto/Downloads/Landespegel.csv")
 
 
 abfluss <- abfluss %>% 
@@ -22,13 +22,13 @@ abfluss <- abfluss %>%
 nis <- nis %>%
   mutate(date = make_datetime(Jahr, Monat, Tag, Stunde))
 
+
+
 workdat<-merge(abfluss,nis,by = "date")
 
-workdat$Stunde <- NULL
-
-workdat$Wert <- gsub(",", ".", workdat$Wert)
-
-workdat$Wert <- as.numeric(workdat$Wert)
+workdat <- workdat %>% 
+  select(-Stunde) %>%
+  mutate(Wert = as.numeric(gsub(",", ".", Wert))) 
 
 workdat <- tibble::rowid_to_column(workdat, "ID")
 
@@ -36,6 +36,8 @@ workdat <- tibble::rowid_to_column(workdat, "ID")
 save(workdat, file = "/Users/dabanto/Downloads/workdat.RData")
 
 #aggreggierte tageswerte
+
+
 
 
 #plot niederschlag und 
@@ -46,7 +48,7 @@ plot(workdat$date,workdat$N,type="l",col="darkblue",ylab="Niederschlag [mm]",xla
 
 
 #nach events suchen
-events.P = eventPOT(workdat$N, threshold = 15, min.diff = 1)
+events.P = eventPOT(workdat$N, threshold = 10, min.diff = 1)
 
 #plot events
 plotEvents(workdat$N, dates = workdat$date, events = events.P, type = "hyet", colline = "#377EB8", colpnt = "#E41A1C",ylab = "Rainfall (mm)", xlab = 2015, main = "")
@@ -69,35 +71,7 @@ out <- do.call(rbind, filt)
 new <-  do.call(rbind, Map(cbind, Name = seq_along(filt), filt))
 
 
-p1 <- ggplot() + geom_line(aes(y = N, x = date, colour = Name),
-                           data = new, stat="identity")
-p1
-
-str(new)
-
-
 new$Wert <- new$Wert*1000*3600/62805000  #mm/hour
-
-
-new_test <- new %>% 
-  filter(Name == 4) %>% 
-  select(date, Wert, N)
-
-BFI_res <- eventBaseflow(new_test$Wert)
-
-
-d = seq(
-  from=min(new_test$date),
-  to=max(new_test$date),
-  by="hour"
-)  
-
-new_test$date <- NULL
-
-limbs(data = new_test$Wert, dates = d, events = BFI_res)
-
-## ausprobieren
-df <- limbs(data = new_test$Wert, dates = d, events = BFI_res)
 
 
 
@@ -135,6 +109,10 @@ agg <- agg %>%
 agg$Qf <- (agg$Qges-agg$Qb)
 
 agg$RFC <- agg$Qf/agg$N
+
+
+
+
   
 
 for (i in 1:nrow(agg)) {
@@ -151,32 +129,31 @@ for (i in 1:nrow(agg)) {
   agg$Q_event[i] <- ifelse(is.na(df), NA, df[1, "sum"])
   agg$srt_event[i] <- ifelse(is.na(df), NA, df[1, "srt"])
   agg$end_event[i] <- ifelse(is.na(df), NA, df[1, "end"])
+  agg$beginning[i] <- ifelse(is.na(df), NA, 1)
+  agg$after_q[i] <- ifelse(is.na(df), NA, nrow(new_t))
+  agg$fall_end[i] <- ifelse(is.na(df), NA, (df[1, "fal.end"]))
   
   agg$sum_n[i] <- new %>%
     filter(Name == i) %>% 
-    slice(agg$srt_event[i]:agg$end_event[i]) %>%
+    slice(agg$beginning[i]:agg$fall_end[i]) %>%
     summarise(sum_value = sum(N)) %>% 
+    pull(sum_value)
+  
+  agg$sum_q[i] <- new %>%
+    filter(Name == i) %>% 
+    slice(agg$beginning[i]:agg$after_q[i]) %>%
+    summarise(sum_value = sum(Wert)) %>% 
     pull(sum_value)
   
 }
 
-agg$srt_event[3]
 
 
+mean(agg$RFC_2)
 
+agg$Qf2 <- (agg$sum_q-agg$bf_alt)
 
-result <- new %>%
-  filter(Name == 1) %>% 
-  slice(agg$srt_event[1]:agg$end_event[1]) %>%
-  summarise(sum_value = sum(N)) %>% 
-  pull(sum_value)
-
-
-
-
-
-
-agg$RFC_2 <- agg$Q_event/agg$sum_n
+agg$RFC_2 <- agg$Qf2/agg$sum_n
 
 
 plot_q <- agg %>% 
